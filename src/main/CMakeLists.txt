@@ -1,4 +1,4 @@
 idf_component_register(
-    SRCS "state.c" "main.c"
+    SRCS "main.c" "state.c" "wifi.c"
     INCLUDE_DIRS "."
 )

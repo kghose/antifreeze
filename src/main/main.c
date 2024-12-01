@@ -13,6 +13,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "state.h"
+#include "wifi.h"
 
 void heartbeat_task() {
   State state;
@@ -82,6 +83,8 @@ void relay_task() {
 }
 
 void app_main() {
+  wifi_init_sta();
+
   ESP_ERROR_CHECK(initialize_state());
 
   TaskHandle_t heartbeat_task_h;
