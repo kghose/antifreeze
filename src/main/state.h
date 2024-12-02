@@ -1,5 +1,5 @@
 /*
- * Defines a state enum and provides thread safe setters and getters for it.
+ * Defines a state struct and manages thread safe access to it.
  * Part of the Antifreeze program. https://github.com/kghose/antifreeze
  *
  * (c) 2024 Kaushik Ghose
@@ -17,19 +17,29 @@
 #include "freertos/task.h"
 
 typedef struct {
-  float t_freeze_danger_c;
-  float k;
-  float temperature_c;
+  float freeze_danger_temp_c;
+  float outside_temp_c;
 
-  bool freeze_danger;
-  bool relay_activated;
-
+  bool relay_on;
   time_t relay_activated_time_s;
 
 } State;
 
 esp_err_t initialize_state();
+
+void set_freeze_danger_temp_c(float);
+float get_freeze_danger_temp_c();
+
+void set_outside_temp_c(float);
+float get_outside_temp_c();
+
+bool freeze_danger_present();
+
+void set_relay_activated(time_t);
+time_t get_relay_activated_time_s();
+bool get_relay_activated();
+void set_relay_deactivated();
+
 State get_state();
-void set_state(State);
 
 #endif  //_STATE_H_

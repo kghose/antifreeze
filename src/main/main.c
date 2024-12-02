@@ -16,19 +16,16 @@
 #include "wifi.h"
 
 void heartbeat_task() {
-  State state;
   gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
   while (true) {
-    state = get_state();
-
     gpio_set_level(LED_PIN, 1);
     vTaskDelay(LED_ON_PERIOD_MS);
     gpio_set_level(LED_PIN, 0);
 
     // The lag in switching state indication is acceptable
-    if (state.relay_activated) {
+    if (get_relay_activated()) {
       vTaskDelay(RELAY_ACTIVATED_HEARTBEAT_PERIOD_MS - LED_ON_PERIOD_MS);
-    } else if (state.freeze_danger) {
+    } else if (freeze_danger_present()) {
       vTaskDelay(FREEZE_DANGER_HEARTBEAT_PERIOD_MS - LED_ON_PERIOD_MS);
     } else {
       vTaskDelay(NORMAL_HEARTBEAT_PERIOD_MS - LED_ON_PERIOD_MS);
@@ -36,61 +33,49 @@ void heartbeat_task() {
   }
 }
 
-time_t get_next_relay_activation_time(State *state) {
-  float relay_activation_interval_s =
-      60.0 *
-      (60.0 - state->k * (state->t_freeze_danger_c - state->temperature_c));
-  uint64_t next_relay_activation_s;
-  if (relay_activation_interval_s > 0) {
-    next_relay_activation_s =
-        state->relay_activated_time_s + relay_activation_interval_s;
-  } else {
-    next_relay_activation_s = 0;  // Do it now
+time_t get_next_relay_activation_time_s() {
+  float outside_temp_c = get_outside_temp_c();
+  float freeze_danger_temp_c = get_freeze_danger_temp_c();
+
+  if (outside_temp_c > freeze_danger_temp_c) {
+    return THE_END_OF_TIME;
   }
-  return next_relay_activation_s;
+
+  float delta_t = freeze_danger_temp_c - outside_temp_c;
+  time_t relay_last_activated_s = get_relay_activated_time_s();
+  return relay_last_activated_s +
+         MAX_RELAY_PERIOD_S / (1 + RELAY_PERIOD_SCALING_CONSTANT * delta_t);
 }
 
-void relay_task() {
-  setenv("TZ", TIME_ZONE, 1);
-  tzset();
-
-  State state;
-  time_t current_time_s;
-
+void relay_activate_task() {
+  time_t now_s;
   while (true) {
-    vTaskDelay(RELAY_SAMPLE_PERIOD_MS);
+    vTaskDelay(SAMPLE_PERIOD_TICKS);
+    time_t next_relay_activation_time_s = get_next_relay_activation_time_s();
+    time(&now_s);
+    if (now_s < next_relay_activation_time_s) continue;
 
-    state = get_state();
-    if (state.temperature_c > state.t_freeze_danger_c) {
-      continue;
-    }
-
-    time(&current_time_s);
-    if (!state.relay_activated) {
-      uint64_t next_relay_activation_s = get_next_relay_activation_time(&state);
-      if (current_time_s > next_relay_activation_s) {
-        gpio_set_level(RELAY_PIN, 1);
-        state.relay_activated_time_s = current_time_s;
-        state.relay_activated = true;
-      }
-    } else {
-      if (current_time_s > state.relay_activated_time_s + RELAY_ON_TIME_S) {
-        gpio_set_level(RELAY_PIN, 0);
-        state.relay_activated = false;
-      }
-    }
+    gpio_set_level(RELAY_PIN, 1);
+    set_relay_activated(now_s);
+    vTaskDelay(RELAY_ON_TICKS);
+    gpio_set_level(RELAY_PIN, 0);
+    set_relay_deactivated();
   }
 }
 
 void app_main() {
   wifi_init_sta();
 
+  setenv("TZ", TIME_ZONE, 1);
+  tzset();
+
   ESP_ERROR_CHECK(initialize_state());
 
   TaskHandle_t heartbeat_task_h;
-  TaskHandle_t relay_task_h;
+  TaskHandle_t relay_activate_task_h;
 
   xTaskCreate(heartbeat_task, "Heartbeat", 1024, NULL, tskIDLE_PRIORITY,
               &heartbeat_task_h);
-  xTaskCreate(relay_task, "Relay", 1024, NULL, tskIDLE_PRIORITY, &relay_task_h);
+  xTaskCreate(relay_activate_task, "Relay Activate", 1024, NULL,
+              tskIDLE_PRIORITY, &relay_activate_task_h);
 }
