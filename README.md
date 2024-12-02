@@ -14,19 +14,16 @@ circulate hot water through the baseboard system during extremely cold periods.
 # Design  
 
 NOTE: This design is for a two wire control, where the thermostat calls for heat 
-by shorting the two thermostat wires together.
+by closing the switch on the thermostat wire circuit.
 
-1. Failsafe system: The system runs in parallel to the existing baseboard 
-   thermostat and independent of the mini-split system.
+1. This system is fail-safe: it runs in parallel to, and independently of, the 
+   existing baseboard thermostat and mini-split system.
 1. The existing thermostat wire is spliced to run, in parallel, to a 28 VAC 
-   rated, opto-coupled relay. Nominal wire voltage is 24 VAC (Our boiler's 
-control box energizes the wires at 29 VAC)
-1. The relay is driven by GPIO 33
-1. A DS18B20 temperature sensor is used to measure outdoor temperatures every 
-   half hour.
-1. When the temperature `T` falls below `T_freeze_danger` the relay is activated 
-   for one minute every `M` minutes. 
-1. `M = 60 - k*(T_freeze_danger - T)`. By default `k=1`
+   rated, opto-coupled relay activated by the ESP32. 
+1. A DS18B20 temperature sensor is used to measure outdoor temperatures.
+1. When the outdoor temperature `T` falls below `T_freeze_danger` the relay is
+   activated for one minute every `M` minutes. 
+1. `M = 60 / (1 + k * (T_freeze_danger - T))`. By default `k=0.1`
 1. The device keeps a log of the temperatures measured and relay activations.
 1. The onboard LED shows a heartbeat every 10 seconds when `T` is more than 
    `T_freeze_danger`.
@@ -56,4 +53,11 @@ home router**
 [DS18B20] ----------------------------------------------- GPIO 36
 ```
 
+# ESP32 concepts used
 
+1. Digital output
+1. RTOS multi-tasking
+1. WiFi connection
+1. mDNS
+1. Http server
+1. Dallas one wire protocol
