@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "httpserver.h"
 #include "nvs_flash.h"
 #include "state.h"
 #include "wifi.h"
@@ -99,6 +100,7 @@ void app_main() {
   TaskHandle_t heartbeat_task_h;
   TaskHandle_t relay_activate_task_h;
   TaskHandle_t temperature_sample_task_h;
+  TaskHandle_t http_server_task_h;
 
   xTaskCreate(heartbeat_task, "Heartbeat", 1024, NULL, tskIDLE_PRIORITY,
               &heartbeat_task_h);
@@ -106,4 +108,6 @@ void app_main() {
               tskIDLE_PRIORITY, &relay_activate_task_h);
   xTaskCreate(temperature_sample_task, "Temp Sample", 1024, NULL,
               tskIDLE_PRIORITY, &temperature_sample_task_h);
+  xTaskCreate(http_server_task, "HTTP server", 4096, NULL, tskIDLE_PRIORITY,
+              &http_server_task_h);
 }
