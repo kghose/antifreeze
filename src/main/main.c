@@ -82,7 +82,7 @@ void temperature_sample_task() {
   }
 }
 
-void app_main() {
+esp_err_t init_flash() {
   // NVS required for WiFi
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -90,16 +90,34 @@ void app_main() {
     ESP_ERROR_CHECK(nvs_flash_erase());
     ret = nvs_flash_init();
   }
-  ESP_ERROR_CHECK(ret);
-  wifi_init_sta();
+  return ret;
+}
 
+void init_time() {
   esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG(NTP_SERVER);
   esp_netif_sntp_init(&config);
   if (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000)) != ESP_OK) {
     printf("Failed to update system time within 10s timeout");
+  } else {
+    printf("Obtained time from " NTP_SERVER "\n");
   }
   setenv("TZ", TIME_ZONE, 1);
   tzset();
+
+  time_t now;
+  char strftime_buf[64];
+  struct tm timeinfo;
+
+  time(&now);
+  localtime_r(&now, &timeinfo);
+  strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+  printf("Antifreeze thinks the time is: %s\n", strftime_buf);
+}
+
+void app_main() {
+  ESP_ERROR_CHECK(init_flash());
+  wifi_init_sta();
+  init_time();
 
   ESP_ERROR_CHECK(initialize_state());
 
