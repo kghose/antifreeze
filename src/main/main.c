@@ -9,6 +9,8 @@
 
 #include "constants.h"
 #include "driver/gpio.h"
+#include "esp_netif_sntp.h"
+#include "esp_sntp.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -91,6 +93,11 @@ void app_main() {
   ESP_ERROR_CHECK(ret);
   wifi_init_sta();
 
+  esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG(NTP_SERVER);
+  esp_netif_sntp_init(&config);
+  if (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000)) != ESP_OK) {
+    printf("Failed to update system time within 10s timeout");
+  }
   setenv("TZ", TIME_ZONE, 1);
   tzset();
 
