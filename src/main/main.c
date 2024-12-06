@@ -50,6 +50,7 @@ time_t get_next_relay_activation_time_s() {
 }
 
 void relay_activate_task() {
+  gpio_set_direction(RELAY_PIN, GPIO_MODE_OUTPUT);
   time_t now_s;
   while (true) {
     vTaskDelay(SAMPLE_PERIOD_TICKS);
@@ -59,17 +60,15 @@ void relay_activate_task() {
 
     gpio_set_level(RELAY_PIN, 1);
     set_relay_activated(now_s);
-    //    printf("relay ON: %lld\n", now_s);
     vTaskDelay(RELAY_ON_TICKS);
     gpio_set_level(RELAY_PIN, 0);
     set_relay_deactivated();
-    //    printf("Relay OFF\n");
   }
 }
 
 void temperature_sample_task() {
   // For debugging
-  float t = 4;
+  float t = 0;
   while (true) {
     t -= 2;
     if (t < -20) {
