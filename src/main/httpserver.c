@@ -26,7 +26,8 @@ char* root_page_template =
     "Outside temp:         %0.1f C\n"
     "Freeze danger temp:   %0.1f C\n"
     "Relay last activated: %d\n"
-    /*    "Relay:                %s"*/
+    "\n\n"
+    "Min heap size:        %d"
     "</pre>";
 
 /* Serves the info page */
@@ -37,8 +38,8 @@ static esp_err_t root_get_handler(httpd_req_t* req) {
   char* resp;
   // TODO check for error
   asprintf(&resp, root_page_template, state.outside_temp_c,
-           state.freeze_danger_temp_c, state.relay_activated_time_s
-           /*(state.relay_on ? "ON" : "OFF")*/);
+           state.freeze_danger_temp_c, state.relay_activated_time_s,
+           esp_get_minimum_free_heap_size());
   httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
   return ESP_OK;
 }

@@ -7,7 +7,7 @@
 #define MAX_RELAY_PERIOD_S 60.0 * 60.0          // 60 min
 
 #define RELAY_PIN 33
-#define TEMP_SENSOR_PIN 34
+#define TEMP_SENSOR_PIN 15
 
 #define SAMPLE_PERIOD_TICKS 60 * configTICK_RATE_HZ  // 1 min
 
@@ -25,5 +25,6 @@
 
 #define TIME_ZONE "EST5EDT,M3.2.0,M11.1.0"
 #define THE_END_OF_TIME LONG_MAX
+#define NTP_SERVER "pool.ntp.org"
 
 #endif

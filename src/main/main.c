@@ -9,6 +9,7 @@
 
 #include "constants.h"
 #include "driver/gpio.h"
+#include "ds18b20.h"
 #include "esp_netif_sntp.h"
 #include "esp_sntp.h"
 #include "freertos/FreeRTOS.h"
@@ -16,6 +17,8 @@
 #include "freertos/task.h"
 #include "httpserver.h"
 #include "nvs_flash.h"
+#include "owb.h"
+#include "owb_rmt.h"
 #include "state.h"
 #include "wifi.h"
 
@@ -68,7 +71,52 @@ void relay_activate_task() {
   }
 }
 
+// The counterfeit ones make trouble with 9bit
+#define DS18B20_RESOLUTION (DS18B20_RESOLUTION_12_BIT)
+
+// TODO: Clean up this function
 void temperature_sample_task() {
+  // Stable readings require a brief period before communication
+  vTaskDelay(2000.0 / portTICK_PERIOD_MS);
+
+  // Create a 1-Wire bus, using the RMT timeslot driver
+  OneWireBus* owb;
+  owb_rmt_driver_info rmt_driver_info;
+  owb = owb_rmt_initialize(&rmt_driver_info, TEMP_SENSOR_PIN, RMT_CHANNEL_1,
+                           RMT_CHANNEL_0);
+  owb_use_crc(owb, true);  // enable CRC check for ROM code
+
+  printf("Looking for outdoor temp DS18B20:\n");
+  OneWireBus_SearchState search_state = {0};
+  bool found = false;
+  owb_search_first(owb, &search_state, &found);
+  if (!found) {
+    ESP_ERROR_CHECK(ESP_ERR_INVALID_RESPONSE);
+  }
+
+  char rom_code_s[OWB_ROM_CODE_STRING_LENGTH];
+  owb_string_from_rom_code(search_state.rom_code, rom_code_s,
+                           sizeof(rom_code_s));
+  printf("ROM Code:  %s\n", rom_code_s);
+
+  // Create DS18B20 device on the 1-Wire bus
+  DS18B20_Info* ds18b20_info = ds18b20_malloc();  // heap allocation
+  printf("Single device optimisations enabled\n");
+  ds18b20_init_solo(ds18b20_info, owb);  // only one device on bus
+
+  ds18b20_use_crc(ds18b20_info, true);  // enable CRC check on all reads
+  ds18b20_set_resolution(ds18b20_info, DS18B20_RESOLUTION);
+
+  float t_c = 0;
+  while (true) {
+    DS18B20_ERROR err = ds18b20_convert_and_read_temp(ds18b20_info, &t_c);
+    printf("Temp: %.3f\n", t_c);
+    set_outside_temp_c(t_c);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+  }
+}
+
+void synthetic_temperature_sample_tasl() {
   // For debugging
   float t = 0;
   while (true) {
@@ -130,7 +178,7 @@ void app_main() {
               &heartbeat_task_h);
   xTaskCreate(relay_activate_task, "Relay Activate", 1024, NULL,
               tskIDLE_PRIORITY, &relay_activate_task_h);
-  xTaskCreate(temperature_sample_task, "Temp Sample", 1024, NULL,
+  xTaskCreate(temperature_sample_task, "Temp Sample", 2048, NULL,
               tskIDLE_PRIORITY, &temperature_sample_task_h);
   xTaskCreate(http_server_task, "HTTP server", 4096, NULL, tskIDLE_PRIORITY,
               &http_server_task_h);
