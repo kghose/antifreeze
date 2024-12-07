@@ -7,6 +7,8 @@
  * Released under the terms of the MIT License
  */
 
+#include <esp_log.h>
+
 #include "constants.h"
 #include "driver/gpio.h"
 #include "ds18b20.h"
@@ -23,20 +25,25 @@
 #include "state.h"
 #include "wifi.h"
 
+static const char* TAG = "antifreeze";
+
+void pulse_led(uint32_t led_on_ticks, uint32_t period_ticks) {
+  gpio_set_level(LED_PIN, 1);
+  vTaskDelay(led_on_ticks);
+  gpio_set_level(LED_PIN, 0);
+  vTaskDelay(period_ticks - led_on_ticks);
+}
+
 void heartbeat_task() {
   gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
   while (true) {
-    gpio_set_level(LED_PIN, 1);
-    vTaskDelay(LED_ON_PERIOD_MS);
-    gpio_set_level(LED_PIN, 0);
-
     // The lag in switching state indication is acceptable
     if (get_relay_activated()) {
-      vTaskDelay(RELAY_ACTIVATED_HEARTBEAT_PERIOD_MS - LED_ON_PERIOD_MS);
+      pulse_led(RELAY_ACTIVATED_LED_ON_TICKS, RELAY_ACTIVATED_HEARTBEAT_TICKS);
     } else if (freeze_danger_present()) {
-      vTaskDelay(FREEZE_DANGER_HEARTBEAT_PERIOD_MS - LED_ON_PERIOD_MS);
+      pulse_led(LED_ON_TICKS, FREEZE_DANGER_HEARTBEAT_TICKS);
     } else {
-      vTaskDelay(NORMAL_HEARTBEAT_PERIOD_MS - LED_ON_PERIOD_MS);
+      pulse_led(LED_ON_TICKS, NORMAL_HEARTBEAT_TICKS);
     }
   }
 }
@@ -72,8 +79,10 @@ void relay_activate_task() {
   }
 }
 
-// Look for our DS18B20. If found, print out the ROM string. If not found return
-// false
+// Look for our DS18B20.
+// If found, print out the ROM string and return true.
+// If not found, and not in testing mode, abort.
+// If not found and in tetsing mode, return false
 bool init_temperature_probe(OneWireBus* owb) {
   // Stable readings require a brief period before communication
   vTaskDelay(2000.0 / portTICK_PERIOD_MS);
@@ -83,18 +92,23 @@ bool init_temperature_probe(OneWireBus* owb) {
                            RMT_CHANNEL_0);
   owb_use_crc(owb, true);  // enable CRC check for ROM code
 
-  printf("Looking for outdoor temp DS18B20:\n");
+  ESP_LOGI(TAG, "Looking for outdoor temp DS18B20:\n");
   OneWireBus_SearchState search_state = {0};
   bool found = false;
   owb_search_first(owb, &search_state, &found);
   if (!found) {
-    return false;
+    ESP_LOGE(TAG, "No temperature probe found.");
+    if (CONFIG_TEST_MODE) {
+      return false;
+    } else {
+      abort();
+    }
   }
 
   char rom_code_s[OWB_ROM_CODE_STRING_LENGTH];
   owb_string_from_rom_code(search_state.rom_code, rom_code_s,
                            sizeof(rom_code_s));
-  printf("ROM Code:  %s\n", rom_code_s);
+  ESP_LOGI(TAG, "Sensor found. ROM Code:  %s\n", rom_code_s);
   return true;
 }
 
@@ -104,9 +118,7 @@ void temperature_sample_task(void* pvParameter) {
 
   // Create DS18B20 device on the 1-Wire bus
   DS18B20_Info* ds18b20_info = ds18b20_malloc();  // heap allocation
-  printf("Single device optimisations enabled\n");
-  ds18b20_init_solo(ds18b20_info, owb);  // only one device on bus
-
+  ds18b20_init_solo(ds18b20_info, owb);           // only one device on bus
   ds18b20_use_crc(ds18b20_info, true);  // enable CRC check on all reads
   ds18b20_set_resolution(ds18b20_info,
                          DS18B20_RESOLUTION_12_BIT);  // The counterfeit ones
@@ -115,22 +127,22 @@ void temperature_sample_task(void* pvParameter) {
   float t_c = 0;
   while (true) {
     DS18B20_ERROR err = ds18b20_convert_and_read_temp(ds18b20_info, &t_c);
-    printf("Temp: %.3f\n", t_c);
     set_outside_temp_c(t_c);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    vTaskDelay(TEMP_SAMPLE_PERIOD_TICKS);
   }
 }
 
 void simulated_temperature_sample_task() {
-  float t = 0;
+  ESP_LOGW(TAG, "Using simulated temperatures");
+
+  float t = 4;
   while (true) {
     t -= 2;
-    if (t < -20) {
+    if (t < -10) {
       t = 4;
     }
     set_outside_temp_c(t);
-    //    printf("Simulated T=%f\n", t);
-    vTaskDelay(10 * configTICK_RATE_HZ);
+    vTaskDelay(TEMP_SAMPLE_PERIOD_TICKS);
   }
 }
 
@@ -149,9 +161,9 @@ void init_time() {
   esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG(NTP_SERVER);
   esp_netif_sntp_init(&config);
   if (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000)) != ESP_OK) {
-    printf("Failed to update system time within 10s timeout");
+    ESP_LOGE(TAG, "Failed to update system time within 10s timeout");
   } else {
-    printf("Obtained time from " NTP_SERVER "\n");
+    ESP_LOGI(TAG, "Obtained time from " NTP_SERVER);
   }
   setenv("TZ", TIME_ZONE, 1);
   tzset();
@@ -163,7 +175,7 @@ void init_time() {
   time(&now);
   localtime_r(&now, &timeinfo);
   strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-  printf("Antifreeze thinks the time is: %s\n", strftime_buf);
+  ESP_LOGI(TAG, "Antifreeze thinks the time is: %s\n", strftime_buf);
 }
 
 void start_mdns_service() {
@@ -212,4 +224,12 @@ void app_main() {
 
   xTaskCreate(http_server_task, "HTTP server", 4096, NULL, tskIDLE_PRIORITY,
               &http_server_task_h);
+
+  while (true) {
+    State state = get_state();
+    ESP_LOGI(TAG, "Temperature: %0.1f", state.outside_temp_c);
+    ESP_LOGI(TAG, "Relay activated %llds ago",
+             get_relay_activated_elapsed_time_s());
+    vTaskDelay(5 * configTICK_RATE_HZ);
+  }
 }

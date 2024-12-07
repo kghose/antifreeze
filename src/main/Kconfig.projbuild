@@ -1,4 +1,4 @@
-menu "Antifreeze WiFi Config"
+menu "Antifreeze Config"
 
     config WIFI_SSID
         string "WiFi SSID"
@@ -16,5 +16,14 @@ menu "Antifreeze WiFi Config"
         default 3
         help
             Number of retries to connect to router.
+
+    config TEST_MODE
+        bool "Test mode"
+        help
+            Compile device in test mode.
+            If temperature sensor is missing 
+            run a simulated temperature probe.
+            Shorten sample times and relay cycles 
+            so testing is quicker.
 
 endmenu
