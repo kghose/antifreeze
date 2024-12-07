@@ -37,6 +37,7 @@ bool freeze_danger_present();
 
 void set_relay_activated(time_t);
 time_t get_relay_activated_time_s();
+time_t get_relay_activated_elapsed_time_s();
 bool get_relay_activated();
 void set_relay_deactivated();
 

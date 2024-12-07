@@ -71,6 +71,13 @@ time_t get_relay_activated_time_s() {
   return t;
 }
 
+time_t get_relay_activated_elapsed_time_s() {
+  time_t t = get_relay_activated_time_s();
+  time_t now;
+  time(&now);
+  return now - t;
+}
+
 bool get_relay_activated() {
   bool r;
   xSemaphoreTake(state_mutex, portMAX_DELAY);  // block
