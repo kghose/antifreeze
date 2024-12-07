@@ -16,6 +16,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "httpserver.h"
+#include "mdns.h"
 #include "nvs_flash.h"
 #include "owb.h"
 #include "owb_rmt.h"
@@ -51,36 +52,32 @@ time_t get_next_relay_activation_time_s() {
   float delta_t = freeze_danger_temp_c - outside_temp_c;
   time_t relay_last_activated_s = get_relay_activated_time_s();
   return relay_last_activated_s +
-         MAX_RELAY_PERIOD_S / (1 + RELAY_PERIOD_SCALING_CONSTANT * delta_t);
+         MAX_CIRC_INTERVAL_S / (1 + RELAY_PERIOD_SCALING_CONSTANT * delta_t);
 }
 
 void relay_activate_task() {
   gpio_set_direction(RELAY_PIN, GPIO_MODE_OUTPUT);
   time_t now_s;
   while (true) {
-    vTaskDelay(SAMPLE_PERIOD_TICKS);
+    vTaskDelay(RELAY_TASK_INTERVAL_TICKS);
     time_t next_relay_activation_time_s = get_next_relay_activation_time_s();
     time(&now_s);
     if (now_s < next_relay_activation_time_s) continue;
 
     gpio_set_level(RELAY_PIN, 1);
     set_relay_activated(now_s);
-    vTaskDelay(RELAY_ON_TICKS);
+    vTaskDelay(CIRC_ON_TICKS);
     gpio_set_level(RELAY_PIN, 0);
     set_relay_deactivated();
   }
 }
 
-// The counterfeit ones make trouble with 9bit
-#define DS18B20_RESOLUTION (DS18B20_RESOLUTION_12_BIT)
-
-// TODO: Clean up this function
-void temperature_sample_task() {
+// Look for our DS18B20. If found, print out the ROM string. If not found return
+// false
+bool init_temperature_probe(OneWireBus* owb) {
   // Stable readings require a brief period before communication
   vTaskDelay(2000.0 / portTICK_PERIOD_MS);
 
-  // Create a 1-Wire bus, using the RMT timeslot driver
-  OneWireBus* owb;
   owb_rmt_driver_info rmt_driver_info;
   owb = owb_rmt_initialize(&rmt_driver_info, TEMP_SENSOR_PIN, RMT_CHANNEL_1,
                            RMT_CHANNEL_0);
@@ -91,13 +88,19 @@ void temperature_sample_task() {
   bool found = false;
   owb_search_first(owb, &search_state, &found);
   if (!found) {
-    ESP_ERROR_CHECK(ESP_ERR_INVALID_RESPONSE);
+    return false;
   }
 
   char rom_code_s[OWB_ROM_CODE_STRING_LENGTH];
   owb_string_from_rom_code(search_state.rom_code, rom_code_s,
                            sizeof(rom_code_s));
   printf("ROM Code:  %s\n", rom_code_s);
+  return true;
+}
+
+// TODO: Clean up this function
+void temperature_sample_task(void* pvParameter) {
+  OneWireBus* owb = (OneWireBus*)pvParameter;
 
   // Create DS18B20 device on the 1-Wire bus
   DS18B20_Info* ds18b20_info = ds18b20_malloc();  // heap allocation
@@ -105,7 +108,9 @@ void temperature_sample_task() {
   ds18b20_init_solo(ds18b20_info, owb);  // only one device on bus
 
   ds18b20_use_crc(ds18b20_info, true);  // enable CRC check on all reads
-  ds18b20_set_resolution(ds18b20_info, DS18B20_RESOLUTION);
+  ds18b20_set_resolution(ds18b20_info,
+                         DS18B20_RESOLUTION_12_BIT);  // The counterfeit ones
+                                                      // make trouble with 9bit
 
   float t_c = 0;
   while (true) {
@@ -116,8 +121,7 @@ void temperature_sample_task() {
   }
 }
 
-void synthetic_temperature_sample_tasl() {
-  // For debugging
+void simulated_temperature_sample_task() {
   float t = 0;
   while (true) {
     t -= 2;
@@ -130,7 +134,7 @@ void synthetic_temperature_sample_tasl() {
   }
 }
 
-esp_err_t init_flash() {
+void init_flash() {
   // NVS required for WiFi
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -138,7 +142,7 @@ esp_err_t init_flash() {
     ESP_ERROR_CHECK(nvs_flash_erase());
     ret = nvs_flash_init();
   }
-  return ret;
+  ESP_ERROR_CHECK(ret);
 }
 
 void init_time() {
@@ -162,11 +166,28 @@ void init_time() {
   printf("Antifreeze thinks the time is: %s\n", strftime_buf);
 }
 
+void start_mdns_service() {
+  // initialize mDNS service
+  esp_err_t err = mdns_init();
+  if (err) {
+    printf("MDNS Init failed: %d\n", err);
+    return;
+  }
+
+  mdns_hostname_set(MDNS_HOSTNAME);
+  mdns_instance_name_set(MDNS_INSTANCE_NAME);
+
+  mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+  mdns_service_add(NULL, MDNS_SERVICENAME, "_tcp", 80, NULL, 0);
+}
+
 void app_main() {
-  ESP_ERROR_CHECK(init_flash());
+  init_flash();
   wifi_init_sta();
   init_time();
+  start_mdns_service();
 
+  // TODO: error check inside the function
   ESP_ERROR_CHECK(initialize_state());
 
   TaskHandle_t heartbeat_task_h;
@@ -178,8 +199,17 @@ void app_main() {
               &heartbeat_task_h);
   xTaskCreate(relay_activate_task, "Relay Activate", 1024, NULL,
               tskIDLE_PRIORITY, &relay_activate_task_h);
-  xTaskCreate(temperature_sample_task, "Temp Sample", 2048, NULL,
-              tskIDLE_PRIORITY, &temperature_sample_task_h);
+
+  OneWireBus* owb = NULL;
+  if (init_temperature_probe(owb)) {
+    xTaskCreate(temperature_sample_task, "Temp Sample", 2048, owb,
+                tskIDLE_PRIORITY, &temperature_sample_task_h);
+  } else {
+    // No DS18B20? Can't do real work, but we can do testing.
+    xTaskCreate(simulated_temperature_sample_task, "Temp Sample", 2048, NULL,
+                tskIDLE_PRIORITY, &temperature_sample_task_h);
+  }
+
   xTaskCreate(http_server_task, "HTTP server", 4096, NULL, tskIDLE_PRIORITY,
               &http_server_task_h);
 }
