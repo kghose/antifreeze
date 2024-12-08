@@ -22,6 +22,7 @@
 static const char* TAG = "HTTP server";
 
 char* root_page_template =
+    "<head><meta http-equiv=\"refresh\" content=\"30;url=/\"/></head>"
     "<pre>"
     "Outside temp:         %0.1f C\n"
     "Freeze danger temp:   %0.1f C\n"
@@ -54,7 +55,6 @@ static const httpd_uri_t root = {
 static esp_err_t relay_test_handler(httpd_req_t* req) {
   set_outside_temp_c(-100);
 
-  // TODO: find correct way to redirect issues/2
   return root_get_handler(req);
 }
 
