@@ -66,11 +66,12 @@ void relay_activate_task() {
   gpio_set_direction(RELAY_PIN, GPIO_MODE_OUTPUT);
   time_t now_s;
   while (true) {
-    vTaskDelay(RELAY_TASK_INTERVAL_TICKS);
     time_t next_relay_activation_time_s = get_next_relay_activation_time_s();
     time(&now_s);
-    if (now_s < next_relay_activation_time_s) continue;
-
+    if (now_s < next_relay_activation_time_s) {
+      vTaskDelay(RELAY_TASK_INTERVAL_TICKS);
+      continue;
+    }
     gpio_set_level(RELAY_PIN, 1);
     set_relay_activated(now_s);
     vTaskDelay(CIRC_ON_TICKS);
