@@ -50,6 +50,20 @@ static const httpd_uri_t root = {
     .handler = root_get_handler,
 };
 
+// TODO: Implement a proper temp override for testing
+static esp_err_t relay_test_handler(httpd_req_t* req) {
+  set_outside_temp_c(-100);
+
+  // TODO: find correct way to redirect issues/2
+  return root_get_handler(req);
+}
+
+static const httpd_uri_t relay_test = {
+    .uri = "/relay_test",
+    .method = HTTP_GET,
+    .handler = relay_test_handler,
+};
+
 static httpd_handle_t start_webserver(void) {
   httpd_handle_t server = NULL;
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -61,6 +75,7 @@ static httpd_handle_t start_webserver(void) {
     // Set URI handlers
     ESP_LOGI(TAG, "Registering URI handlers");
     httpd_register_uri_handler(server, &root);
+    httpd_register_uri_handler(server, &relay_test);
     return server;
   }
 
@@ -94,6 +109,7 @@ static void connect_handler(void* arg, esp_event_base_t event_base,
     *server = start_webserver();
   }
 }
+
 void http_server_task() {
   static httpd_handle_t server = NULL;
   ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
