@@ -14,6 +14,8 @@ esp_err_t initialize_state() {
     return ESP_ERR_INVALID_STATE;
   }
   state.freeze_danger_temp_c = DEFAULT_FREEZE_DANGER_TEMP_C;
+  state.outside_temp_c = 25;  // Takes us a moment to get the temperature and we
+                              // don't want to trigger the relay
   state.relay_activated_time_s = 0;
   state.relay_on = false;
 

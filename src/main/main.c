@@ -79,11 +79,27 @@ void relay_activate_task() {
   }
 }
 
-// Look for our DS18B20.
-// If found, print out the ROM string and return true.
-// If not found, and not in testing mode, abort.
-// If not found and in tetsing mode, return false
-bool init_temperature_probe(OneWireBus* owb) {
+void simulated_temperature_sample_task() {
+  ESP_LOGW(TAG, "Test mode: Using simulated temperature probe");
+
+  float t = 4;
+  while (true) {
+    t -= 2;
+    if (t < -10) {
+      t = 4;
+    }
+    set_outside_temp_c(t);
+    vTaskDelay(TEMP_SAMPLE_PERIOD_TICKS);
+  }
+}
+
+// TODO: Clean up this function
+void temperature_sample_task(void* pvParameter) {
+  // There is something sensitive here, possibly task related:
+  // If the initialization lines are moved to a separate function the ds18b20
+  // stops responding.
+
+  OneWireBus* owb = NULL;
   // Stable readings require a brief period before communication
   vTaskDelay(2000.0 / portTICK_PERIOD_MS);
 
@@ -92,14 +108,14 @@ bool init_temperature_probe(OneWireBus* owb) {
                            RMT_CHANNEL_0);
   owb_use_crc(owb, true);  // enable CRC check for ROM code
 
-  ESP_LOGI(TAG, "Looking for outdoor temp DS18B20:\n");
+  ESP_LOGI(TAG, "Looking for DS18B20 outdoor temp probe.");
   OneWireBus_SearchState search_state = {0};
   bool found = false;
   owb_search_first(owb, &search_state, &found);
   if (!found) {
     ESP_LOGE(TAG, "No temperature probe found.");
     if (CONFIG_TEST_MODE) {
-      return false;
+      simulated_temperature_sample_task();
     } else {
       abort();
     }
@@ -108,13 +124,7 @@ bool init_temperature_probe(OneWireBus* owb) {
   char rom_code_s[OWB_ROM_CODE_STRING_LENGTH];
   owb_string_from_rom_code(search_state.rom_code, rom_code_s,
                            sizeof(rom_code_s));
-  ESP_LOGI(TAG, "Sensor found. ROM Code:  %s\n", rom_code_s);
-  return true;
-}
-
-// TODO: Clean up this function
-void temperature_sample_task(void* pvParameter) {
-  OneWireBus* owb = (OneWireBus*)pvParameter;
+  ESP_LOGI(TAG, "Probe found. ROM Code:  %s\n", rom_code_s);
 
   // Create DS18B20 device on the 1-Wire bus
   DS18B20_Info* ds18b20_info = ds18b20_malloc();  // heap allocation
@@ -128,20 +138,6 @@ void temperature_sample_task(void* pvParameter) {
   while (true) {
     DS18B20_ERROR err = ds18b20_convert_and_read_temp(ds18b20_info, &t_c);
     set_outside_temp_c(t_c);
-    vTaskDelay(TEMP_SAMPLE_PERIOD_TICKS);
-  }
-}
-
-void simulated_temperature_sample_task() {
-  ESP_LOGW(TAG, "Using simulated temperatures");
-
-  float t = 4;
-  while (true) {
-    t -= 2;
-    if (t < -10) {
-      t = 4;
-    }
-    set_outside_temp_c(t);
     vTaskDelay(TEMP_SAMPLE_PERIOD_TICKS);
   }
 }
@@ -211,17 +207,8 @@ void app_main() {
               &heartbeat_task_h);
   xTaskCreate(relay_activate_task, "Relay Activate", 1024, NULL,
               tskIDLE_PRIORITY, &relay_activate_task_h);
-
-  OneWireBus* owb = NULL;
-  if (init_temperature_probe(owb)) {
-    xTaskCreate(temperature_sample_task, "Temp Sample", 2048, owb,
-                tskIDLE_PRIORITY, &temperature_sample_task_h);
-  } else {
-    // No DS18B20? Can't do real work, but we can do testing.
-    xTaskCreate(simulated_temperature_sample_task, "Temp Sample", 2048, NULL,
-                tskIDLE_PRIORITY, &temperature_sample_task_h);
-  }
-
+  xTaskCreate(temperature_sample_task, "Temp Sample", 4096, NULL,
+              tskIDLE_PRIORITY, &temperature_sample_task_h);
   xTaskCreate(http_server_task, "HTTP server", 4096, NULL, tskIDLE_PRIORITY,
               &http_server_task_h);
 

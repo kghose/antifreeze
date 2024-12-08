@@ -37,9 +37,9 @@
 // Overrides for test
 #if CONFIG_TEST_MODE
 
-#define CIRC_ON_TICKS 15 * configTICK_RATE_HZ  // 15s
-#define MAX_CIRC_INTERVAL_S 60.0               // 30s
-#define TEMP_SAMPLE_PERIOD_TICKS 30 * configTICK_RATE_HZ
+#define CIRC_ON_TICKS 15 * configTICK_RATE_HZ
+#define MAX_CIRC_INTERVAL_S 60.0
+#define TEMP_SAMPLE_PERIOD_TICKS 60 * configTICK_RATE_HZ
 
 #else
 
