@@ -80,20 +80,6 @@ void relay_activate_task() {
   }
 }
 
-void simulated_temperature_sample_task() {
-  ESP_LOGW(TAG, "Test mode: Using simulated temperature probe");
-
-  float t = 4;
-  while (true) {
-    t -= 2;
-    if (t < -10) {
-      t = 4;
-    }
-    set_outside_temp_c(t);
-    vTaskDelay(TEMP_SAMPLE_PERIOD_TICKS);
-  }
-}
-
 // TODO: Clean up this function
 void temperature_sample_task(void* pvParameter) {
   // There is something sensitive here, possibly task related:
@@ -109,17 +95,12 @@ void temperature_sample_task(void* pvParameter) {
                            RMT_CHANNEL_0);
   owb_use_crc(owb, true);  // enable CRC check for ROM code
 
-  ESP_LOGI(TAG, "Looking for DS18B20 outdoor temp probe.");
   OneWireBus_SearchState search_state = {0};
   bool found = false;
-  owb_search_first(owb, &search_state, &found);
-  if (!found) {
-    ESP_LOGE(TAG, "No temperature probe found.");
-    if (CONFIG_TEST_MODE) {
-      simulated_temperature_sample_task();
-    } else {
-      abort();
-    }
+  while (!found) {
+    ESP_LOGI(TAG, "Looking for DS18B20 outdoor temp probe.");
+    owb_search_first(owb, &search_state, &found);
+    vTaskDelay(TEMP_SAMPLE_PERIOD_TICKS);
   }
 
   char rom_code_s[OWB_ROM_CODE_STRING_LENGTH];
