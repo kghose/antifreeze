@@ -21,26 +21,52 @@
 
 static const char* TAG = "HTTP server";
 
+// TOOD: Maybe this should be part of state ...
+// Currently initialized when the http server is started
+time_t boot_time;
+
+// https://stackoverflow.com/a/16043969
 char* root_page_template =
-    "<head><meta http-equiv=\"refresh\" content=\"30;url=/\"/></head>"
-    "<pre>"
-    "Outside temp:         %0.1f C\n"
-    "Freeze danger temp:   %0.1f C\n"
-    "Relay last activated: %d\n"
-    "\n\n"
-    "Min heap size:        %d"
-    "</pre>";
+    "<head>"
+    "<meta http-equiv=\"refresh\" content=\"30;url=/\"/>"
+    "<style>"
+    "body {"
+    "margin: auto;"
+    "width: 40em; height: 40em;"
+    "font-family: Arial, sans-serif; font-size:1vw;"
+    "}"
+    "</style>"
+    "</head>"
+    "<body>"
+    "<hr>"
+    "Outside temp:         %0.1f C</br>"
+    "Freeze danger temp:   %0.1f C</br>"
+    "Relay last activated: %s </br>"
+    "<hr>"
+    "Antifreeze up since:  %s"
+    "<p><a href=\"/relay_test\">Relay test</a></p>"
+    "</body>";
 
 /* Serves the info page */
 static esp_err_t root_get_handler(httpd_req_t* req) {
   State state = get_state();
-  httpd_resp_set_type(req, "text/html");
+
+  struct tm timeinfo;
+
+  char boot_time_buf[64] = "";
+  localtime_r(&boot_time, &timeinfo);
+  strftime(boot_time_buf, sizeof(boot_time_buf), "%c", &timeinfo);
+
+  char relay_time_buf[64] = "";
+  localtime_r(&state.relay_activated_time_s, &timeinfo);
+  strftime(relay_time_buf, sizeof(relay_time_buf), "%c", &timeinfo);
 
   char* resp;
   // TODO check for error
   asprintf(&resp, root_page_template, state.outside_temp_c,
-           state.freeze_danger_temp_c, state.relay_activated_time_s,
-           esp_get_minimum_free_heap_size());
+           state.freeze_danger_temp_c, relay_time_buf, boot_time_buf);
+
+  httpd_resp_set_type(req, "text/html");
   httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
   return ESP_OK;
 }
@@ -111,6 +137,8 @@ static void connect_handler(void* arg, esp_event_base_t event_base,
 }
 
 void http_server_task() {
+  time(&boot_time);
+
   static httpd_handle_t server = NULL;
   ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
                                              &connect_handler, &server));
